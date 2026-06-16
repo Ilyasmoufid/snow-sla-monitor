@@ -53,7 +53,7 @@ def get_active_itasks() -> list:
             f"active=true"
             f"^assignment_group={ASSIGNMENT_GROUP_SYS_ID}"
         ),
-        "sysparm_fields": "number,sys_id,parent,short_description,priority",
+        "sysparm_fields": "number,sys_id,parent,short_description,priority,subcategory",
         "sysparm_display_value": "all",  # value = sys_id, display_value = texte
         "sysparm_limit": "100",
     })
@@ -103,26 +103,28 @@ def save_state(state: dict) -> None:
 
 def send_teams_alert(
     itask_number: str,
+    task_sys_id: str,
     inc_number: str,
     short_desc: str,
     priority: str,
+    subcategory: str,
     percentage: float,
     sla_name: str,
 ) -> bool:
     """Envoie une carte d'alerte SLA dans Teams via Power Automate webhook."""
-    snow_url = (
-        f"{SNOW_BASE_URL}/nav_to.do"
-        f"?uri=u_incident_task.do?sysparm_query=number={itask_number}"
-    )
+    # Lien direct vers l'ITASK (ouverture immédiate du ticket)
+    itask_url = f"{SNOW_BASE_URL}/u_incident_task.do?sys_id={task_sys_id}"
 
     # Format texte compatible Power Automate webhook
+    subcat_line = f"Sous-catégorie : {subcategory}\n" if subcategory else ""
     text = (
         f"🚨 Alerte SLA — {itask_number}\n\n"
         f"Incident parent : {inc_number}\n"
         f"Description : {short_desc[:200]}\n"
+        f"{subcat_line}"
         f"Priorité : {priority}\n"
         f"SLA consommé : {percentage:.1f}% — {sla_name}\n\n"
-        f"👉 {snow_url}"
+        f"👉 Ouvrir l'ITASK : {itask_url}"
     )
 
     try:
@@ -156,10 +158,12 @@ def main() -> None:
 
     for task in itasks:
         number       = _disp(task.get("number"))
+        task_sys_id  = _val(task.get("sys_id"))
         parent_sys   = _val(task.get("parent"))
         inc_number   = _disp(task.get("parent"))
         short_desc   = _disp(task.get("short_description"))
         priority     = _disp(task.get("priority"))
+        subcategory  = _disp(task.get("subcategory"))
 
         if not number:
             continue
@@ -195,7 +199,8 @@ def main() -> None:
 
         if worst_pct >= SLA_THRESHOLD:
             sent = send_teams_alert(
-                number, inc_number, short_desc, priority, worst_pct, worst_name
+                number, task_sys_id, inc_number, short_desc,
+                priority, subcategory, worst_pct, worst_name
             )
             if sent:
                 alerted[number] = datetime.now(timezone.utc).isoformat()
