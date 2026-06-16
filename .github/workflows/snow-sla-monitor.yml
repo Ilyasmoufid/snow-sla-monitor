@@ -1,0 +1,70 @@
+# ============================================================
+# GitHub Actions — ServiceNow SLA Monitor
+# ============================================================
+# Surveille les SLAs des tickets ITASK du groupe
+# OPS-APP-FUTURMASTER-WW-RC et envoie une alerte Teams
+# dans le canal "SLA Alerts" quand >= 50 % du SLA est consommé.
+#
+# Une seule alerte par ticket (état mémorisé dans snow_sla_state.json).
+# Le ticket est réinitialisé automatiquement s'il est clôturé.
+#
+# Secrets à configurer (Settings → Secrets → Actions) :
+#   SNOW_USER              → username ServiceNow (ar259797)
+#   SNOW_PASS              → password ServiceNow
+#   SNOW_TEAMS_WEBHOOK_URL → URL Power Automate webhook (SLA Alerts)
+# ============================================================
+
+name: "🚨 ServiceNow SLA Monitor"
+
+on:
+  schedule:
+    # Toutes les heures, 9h-17h Paris (7h-15h UTC), lun-ven
+    - cron: "0 7-15 * * 1-5"
+
+  # Lancement manuel pour tester
+  workflow_dispatch:
+
+# Permissions pour committer snow_sla_state.json
+permissions:
+  contents: write
+
+jobs:
+  monitor:
+    name: "Vérifier SLAs ServiceNow"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: "📥 Checkout"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: "🐍 Python 3.11"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: "📦 Installer dépendances"
+        run: pip install requests
+
+      - name: "🔍 Lancer la surveillance SLA"
+        env:
+          SNOW_BASE_URL: "https://marsprod.service-now.com"
+          SNOW_USER: ${{ secrets.SNOW_USER }}
+          SNOW_PASS: ${{ secrets.SNOW_PASS }}
+          SNOW_TEAMS_WEBHOOK_URL: ${{ secrets.SNOW_TEAMS_WEBHOOK_URL }}
+        run: python snow_sla_monitor.py
+
+      - name: "💾 Sauvegarder l'état (snow_sla_state.json)"
+        run: |
+          git config --global user.email "snow-sla-monitor@github-actions"
+          git config --global user.name "SLA Monitor Bot"
+          git add snow_sla_state.json
+          git diff --staged --quiet || git commit -m "chore: update sla state [skip ci]"
+          git push
+
+      - name: "❌ Échec"
+        if: failure()
+        run: echo "Le monitor SLA a échoué. Vérifier les logs ci-dessus."
